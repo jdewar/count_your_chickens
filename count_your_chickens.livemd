@@ -1,0 +1,157 @@
+<!-- vim: set syntax=markdown: -->
+
+# Count Your Chickens!
+
+## Introduction
+
+[Count Your Chickens!](https://boardgamegeek.com/boardgame/94481/count-your-chickens) 
+is a cooperative board game designed to teach both counting and adding 1 to a number.
+
+The goal is to get all of your baby chicks into the coop before you reach the end.
+You spin an animal spinner and you move the mother hen to that animal's next space 
+on the board.  You also move a number of chicks into the coop equal to the number
+of spaces you moved on the board.  When all of the chicks have been moved into the coop,
+you win.  If you reach the end of the board without some chicks still roaming, you lose.
+
+Sometimes the space you land on is a blue space which means you add one more chick than
+the number of spaces you moved.
+
+Sometimes the spinner result is a fox, where you move one chick from the coop back to the yard.
+
+## Setup Livebook simulator
+
+This markdown uses Elixir's Livebook: https://livebook.dev/#install
+and the below dependencies to graph the results of the simluator
+
+```elixir
+Mix.install([:vega_lite, :kino])
+alias VegaLite, as: Vl
+```
+
+## Build the game simulator
+
+The game board is defined in `count_your_chickens_board.txt` where each line defines a space
+on the board.  Most spaces on the board are an animal name corresponding to an animal on
+the spinner.  Empty lines in the file are spaces with no animal.  Animal names that start with
+a `+` are the blue spaces where an additional chick is put in the coop if you land on them.
+
+```elixir
+defmodule Game do
+  @board_file "count_your_chickens_board.txt"
+  @board @board_file |> File.read!() |> String.split("\n")
+  @total_chicks 40
+
+  defstruct turn: 0,
+            position: 0,
+            chicks_in_coop: 0,
+            chicks_roaming: @total_chicks,
+            game_over: false,
+            log: []
+
+  def spinner, do: Enum.random(~w(cow dog fox pig sheep tractor))
+
+  def simulate, do: simulate(%Game{})
+  def simulate(%{game_over: true} = state), do: state
+
+  def simulate(state) do
+    state
+    |> advance_turn
+    |> handle_spin(spinner())
+    |> simulate()
+  end
+
+  def handle_spin(state, "fox") do
+    state
+    |> move_chick(:from_coop, 1)
+    |> log_move("fox")
+  end
+
+  def handle_spin(state, action) do
+    {{new_spot, new_position}, end_of_game, extra_chick} =
+      @board
+      |> Enum.with_index(1)
+      |> Enum.drop(state.position)
+      |> Enum.find_value(&compare_space(&1, action))
+
+    moves = new_position - state.position
+
+    state
+    |> move_chick(:to_coop, moves + extra_chick)
+    |> move_player(moves)
+    |> log_move(new_spot)
+    |> maybe_end_game(end_of_game)
+  end
+
+  def compare_space({"all", _idx} = entry, _), do: {entry, true, 0}
+  def compare_space({"+" <> animal, _idx} = entry, animal), do: {entry, false, 1}
+  def compare_space({animal, _idx} = entry, animal), do: {entry, false, 0}
+  def compare_space(_, _), do: false
+
+  def move_chick(%{chicks_in_coop: in_coop} = state, :to_coop, to_coop)
+      when in_coop + to_coop > @total_chicks do
+    state
+    |> move_chick(@total_chicks - in_coop)
+    |> maybe_end_game(true)
+  end
+
+  def move_chick(state, :to_coop, count), do: move_chick(state, count)
+
+  def move_chick(%{chicks_in_coop: in_coop} = state, :from_coop, count) when in_coop < count,
+    do: move_chick(state, -in_coop)
+
+  def move_chick(state, :from_coop, count), do: move_chick(state, -count)
+
+  # State mutators
+  def move_chick(state, count) do
+    %{
+      state
+      | chicks_in_coop: state.chicks_in_coop + count,
+        chicks_roaming: state.chicks_roaming - count
+    }
+  end
+
+  def log_move(state, move), do: %{state | log: [move | state.log]}
+  def advance_turn(state), do: %{state | turn: state.turn + 1}
+  def move_player(state, moves), do: %{state | position: state.position + moves}
+  def maybe_end_game(state, true), do: %{state | game_over: true}
+  def maybe_end_game(state, _), do: state
+end
+
+IO.puts("Example game output:")
+Game.simulate()
+```
+
+```elixir
+num_sims = 10000
+sims = Enum.map(1..num_sims, fn _ -> Game.simulate() |> Map.from_struct() end)
+
+Vl.new()
+|> Vl.data_from_values(sims)
+|> Vl.transform(
+  calculate: "datum.chicks_roaming > 0 ? 'loss' : (datum.position == 40 ? 'win' : 'super win')",
+  as: "outcome"
+)
+|> Vl.concat(
+  [
+    Vl.new(width: 700, height: 200)
+    |> Vl.mark(:rect)
+    |> Vl.encode_field(:x, "chicks_in_coop",
+      type: :ordinal,
+      axis: [grid: true, tick_band: :extent]
+    )
+    |> Vl.encode_field(:y, "turn",
+      type: :ordinal,
+      axis: [grid: true, tick_band: :extent, orient: :right]
+    )
+    |> Vl.encode(:color, aggregate: :count),
+    Vl.new(width: 700, height: 200)
+    |> Vl.mark(:arc)
+    |> Vl.encode_field(:theta, "outcome",
+      type: :ordinal,
+      aggregate: :count
+    )
+    |> Vl.encode_field(:color, "outcome", type: :nominal)
+  ],
+  :vertical
+)
+```
