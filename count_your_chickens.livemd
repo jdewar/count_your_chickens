@@ -11,7 +11,7 @@ The goal is to get all of your baby chicks into the coop before you reach the en
 You spin an animal spinner and you move the mother hen to that animal's next space 
 on the board.  You also move a number of chicks into the coop equal to the number
 of spaces you moved on the board.  When all of the chicks have been moved into the coop,
-you win.  If you reach the end of the board without some chicks still roaming, you lose.
+you win.  If you reach the end of the board with any chicks still roaming, you lose.
 
 Sometimes the space you land on is a blue space which means you add one more chick than
 the number of spaces you moved.
